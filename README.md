@@ -11,6 +11,4 @@ Instead of relying on passive post-hoc watermarking, GMUs act as hidden traps pl
 * **Zero-Shot Inference Preservation:** Maintains the original model's performance exactly as intended through a symmetry-locked initialization.
 * **Post-hoc & Data-free Injection:** Placed directly into pretrained weights without requiring access to original training data or expensive retraining.
 * **Proactive Deterrence:** Degrades model utility *only* when fine-tuning is attempted, making unauthorized adaptation practically unrewarding.
-* **Broad Applicability:** Successfully validated across both Vision Transformers (ViTs) and Large Language Models (LLMs).
-
 ---
