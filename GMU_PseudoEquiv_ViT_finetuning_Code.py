@@ -40,7 +40,7 @@ NATIVE_CAMO_RATIO = 0.05
 NATIVE_CAMO_SCALE = 10**7
 NATIVE_CAMO_MODE = "random"  # {"random", "top_norm"}
 NATIVE_CAMO_TARGET_LAYERS = [
-    i for i in range(12) if i not in GMU_TARGET_LAYERS
+    i for i in range(12) 
 ]
 
 # Taken from the first code.
@@ -172,10 +172,6 @@ def apply_native_scale_camouflage(
     native_camo_stats = {}
 
     for layer_idx in target_layers:
-        if layer_idx in GMU_TARGET_LAYERS:
-            raise ValueError(
-                f"Native MLP camouflage target layer {layer_idx} overlaps with GMU_TARGET_LAYERS."
-            )
 
         layer = model.vit.encoder.layer[layer_idx]
         inter = layer.intermediate.dense

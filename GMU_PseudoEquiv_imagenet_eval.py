@@ -32,7 +32,7 @@ OMEGA_VAL = 10**7
 CAMO_TARGET_LAYERS = list(range(12))
 GMU_TARGET_LAYERS = list(range(2, 6))
 NATIVE_CAMO_TARGET_LAYERS = [
-    i for i in range(12) if i not in GMU_TARGET_LAYERS
+    i for i in range(12)
 ]
 SHADOW_SIZE = 8
 
@@ -110,10 +110,7 @@ def apply_native_scale_camouflage(
     native_camo_stats = {}
 
     for layer_idx in target_layers:
-        if layer_idx in GMU_TARGET_LAYERS:
-            raise ValueError(
-                f"Native MLP camouflage target layer {layer_idx} overlaps with GMU_TARGET_LAYERS."
-            )
+
 
         layer = model.vit.encoder.layer[layer_idx]
         inter = layer.intermediate.dense
@@ -264,19 +261,6 @@ def apply_mrt(model, scale, shadow_size=8, epsilon=1e-20):
 
     return model
 
-def verify_native_camo_excludes_gmu_layers(native_camo_indices, log_path=None):
-    for layer_idx in native_camo_indices:
-        if layer_idx in GMU_TARGET_LAYERS:
-            msg = f"CRITICAL ERROR: Native MLP camouflage applied to GMU layer {layer_idx}!"
-            if log_path:
-                log_print(msg)
-            else:
-                print(msg)
-            raise ValueError(msg)
-    if log_path:
-        log_print("[Verification] Native MLP camouflage successfully excluded all GMU layers.")
-    else:
-        print("[Verification] Native MLP camouflage successfully excluded all GMU layers.")
 # ============================================================
 # ImageNet Validation
 # ============================================================
