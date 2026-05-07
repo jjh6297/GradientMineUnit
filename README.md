@@ -1,5 +1,5 @@
 
-# 💣 Gradient-Mine Units: Scorched-Earth Strategy for Model Protection against Unauthorized Fine-Tuning**
+# 💣 Gradient-Mine Units: Scorched-Earth Strategy for Model Protection against Unauthorized Fine-Tuning
 
 Welcome to the official repository for **Gradient-Mine Units (GMU)**. 
 
