@@ -145,11 +145,6 @@ def inject_gmu(
         output.weight[:, -shadow_size:-K] = temp
         output.weight[:, -K:] = -temp
 
-        log_print(
-            f"[GMU] layer={layer_idx:02d} | "
-            f"K={shadow_size} | Omega={scale:.2e} | epsilon={epsilon:.2e}"
-        )
-
     return model
 
 
@@ -224,7 +219,7 @@ def apply_native_scale_camouflage(
             "ratio": float(num_select / hidden_dim),
             "scale": float(scale),
             "mode": mode,
-            "excluded_gmu_layers": GMU_TARGET_LAYERS,
+            "excluded_gmu_layers": sorted(set(GMU_TARGET_LAYERS) - set(target_layers)),
             "encoder_norm_selected_before_mean": float(weight_before_norm[selected].mean().item()),
             "encoder_norm_selected_after_mean": float(weight_after_norm[selected].mean().item()),
             "readout_norm_selected_before_mean": float(out_before_norm[selected].mean().item()),
@@ -232,12 +227,6 @@ def apply_native_scale_camouflage(
             "encoder_norm_all_after_max": float(weight_after_norm.max().item()),
             "encoder_norm_all_after_median": float(weight_after_norm.median().item()),
         }
-
-        log_print(
-            f"[Native-MLP-Camo] layer={layer_idx:02d} | "
-            f"selected={num_select}/{hidden_dim} ({num_select / hidden_dim:.2%}) | "
-            f"scale={scale:.2e} | mode={mode}"
-        )
 
     return model, native_camo_indices, native_camo_stats
 
@@ -325,12 +314,6 @@ def apply_qk_camouflage(
             "k_norm_all_after_median": float(k_after_norm.median().item()),
         }
 
-        log_print(
-            f"[QK-Camo] layer={layer_idx:02d} | "
-            f"selected={num_select}/{hidden_dim} ({num_select / hidden_dim:.2%}) | "
-            f"scale={scale:.2e} | mode={mode}"
-        )
-
     return model, qk_camo_indices, qk_camo_stats
 
 
@@ -362,7 +345,6 @@ def prepare_data(dataset_name, processor):
         ToTensor()
         Normalize(mean, std)
     """
-    log_print(f"[*] Preparing dataset: {dataset_name}")
 
     mean, std = processor.image_mean, processor.image_std
     size = processor.size["height"]
@@ -560,20 +542,38 @@ def train_one_epoch(model, train_dl, optimizer, criterion, device, dataset_name,
 # Trial
 # ============================================================
 
+def experiment_label():
+    label = "GMU"
+    if QK_CAMO_RATIO > 0 and QK_CAMO_TARGET_LAYERS:
+        label += "_with_qk_camouflage"
+    if NATIVE_CAMO_RATIO > 0 and NATIVE_CAMO_TARGET_LAYERS:
+        scope = ("overlapping_gmu_layers" if
+                 set(NATIVE_CAMO_TARGET_LAYERS) & set(GMU_TARGET_LAYERS)
+                 else "outside_gmu_layers")
+        label += "_native_mlp_camouflage_" + scope
+    return label
+
+
 def run_trial(dataset_name, seed, trial_idx, gpu_id):
     device = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
 
     save_path = os.path.join(
         OUTPUT_DIR,
-        f"results_bothcamo_mlp_exclude_gmulayers_{dataset_name}_seed{seed}.json",
+        f"results_{experiment_label()}_{dataset_name}_seed{seed}.json",
     )
 
-    if os.path.exists(save_path):
-        log_print(f"[SKIP] Existing result found: {save_path}")
-        return
+    # Recognize old filenames without modifying or overwriting existing results.
+    legacy_path = os.path.join(
+        OUTPUT_DIR,
+        f"results_bothcamo_mlp_exclude_gmulayers_{dataset_name}_seed{seed}.json",
+    )
+    for existing_path in (save_path, legacy_path):
+        if os.path.exists(existing_path):
+            log_print(f"[SKIP] Existing result found: {existing_path}")
+            return
 
     log_print(
-        f"\n>>> [START] BothCamouflage | {dataset_name} | "
+        f"\n>>> [START] {experiment_label()} | {dataset_name} | "
         f"Trial={trial_idx} | Seed={seed} | Device={device}"
     )
 
@@ -589,7 +589,6 @@ def run_trial(dataset_name, seed, trial_idx, gpu_id):
     )
     model.to(device)
 
-    log_print("\n[*] Applying Native MLP camouflage outside GMU layers...")
     model, native_camo_indices, native_camo_stats = apply_native_scale_camouflage(
         model=model,
         scale=NATIVE_CAMO_SCALE,
@@ -599,7 +598,6 @@ def run_trial(dataset_name, seed, trial_idx, gpu_id):
         seed=seed,
     )
 
-    log_print("\n[*] Applying Q/K reciprocal camouflage...")
     model, qk_camo_indices, qk_camo_stats = apply_qk_camouflage(
         model=model,
         scale=QK_CAMO_SCALE,
@@ -609,7 +607,6 @@ def run_trial(dataset_name, seed, trial_idx, gpu_id):
         seed=seed,
     )
 
-    log_print("\n[*] Injecting GMUs...")
     model = inject_gmu(
         model=model,
         scale=OMEGA_VAL,
@@ -623,10 +620,9 @@ def run_trial(dataset_name, seed, trial_idx, gpu_id):
     criterion = nn.CrossEntropyLoss()
 
     initial_val_acc = evaluate(model, val_dl, device)
-    log_print(f"[Before FT] {dataset_name} Acc={initial_val_acc:.4f}")
 
     history = {
-        "model_type": "GMU_with_qk_camouflage_and_native_mlp_camouflage_outside_gmu_layers",
+        "model_type": experiment_label(),
         "dataset": dataset_name,
         "model_id": MODEL_ID,
         "trial": trial_idx,
@@ -641,17 +637,19 @@ def run_trial(dataset_name, seed, trial_idx, gpu_id):
         "epsilon": EPSILON,
         "gmu_target_layers": GMU_TARGET_LAYERS,
         "native_camouflage": {
-            "enabled": True,
+            "enabled": bool(native_camo_indices),
             "scale": NATIVE_CAMO_SCALE,
             "ratio": NATIVE_CAMO_RATIO,
             "mode": NATIVE_CAMO_MODE,
             "target_layers": NATIVE_CAMO_TARGET_LAYERS,
-            "explicitly_excludes_gmu_layers": True,
+            "explicitly_excludes_gmu_layers": not bool(
+                set(NATIVE_CAMO_TARGET_LAYERS) & set(GMU_TARGET_LAYERS)
+            ),
             "indices": native_camo_indices,
             "stats": native_camo_stats,
         },
         "qk_camouflage": {
-            "enabled": True,
+            "enabled": bool(qk_camo_indices),
             "scale": QK_CAMO_SCALE,
             "ratio": QK_CAMO_RATIO,
             "mode": QK_CAMO_MODE,
@@ -685,13 +683,6 @@ def run_trial(dataset_name, seed, trial_idx, gpu_id):
         }
 
         history["epochs"].append(stats)
-
-        log_print(
-            f"  E{epoch + 1}: "
-            f"Loss={stats['loss']:.4f}, "
-            f"TrainAcc={stats['train_acc']:.4f}, "
-            f"ValAcc={stats['val_acc']:.4f}"
-        )
 
         with open(save_path, "w") as f:
             json.dump(to_jsonable(history), f, indent=2)
@@ -733,13 +724,6 @@ if __name__ == "__main__":
         help="End seed index, exclusive.",
     )
     args = parser.parse_args()
-
-    with open(LOG_FILE, "w") as f:
-        f.write(
-            f"--- Four-Dataset Both-Camouflage GMU Fine-tuning "
-            f"(first-code camouflage settings + second-code transforms) "
-            f"Started: {time.ctime()} ---\n"
-        )
 
     for dataset_name in args.datasets:
         for idx in range(args.seed_start, args.seed_end):
